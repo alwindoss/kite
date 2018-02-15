@@ -8,7 +8,10 @@ import (
 
 func TestLogin(t *testing.T) {
 	client := kite.NewClient("APIKey")
-	accessToken := client.Login()
+	accessToken, err := client.Login()
+	if err != nil {
+		panic(err)
+	}
 	if accessToken != "ACCESS TOKEN" {
 		t.Errorf("Unpected Result")
 	}
