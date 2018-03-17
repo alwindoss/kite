@@ -1,53 +1,94 @@
 package kite
 
 import (
-	"fmt"
-	"io/ioutil"
+	"encoding/json"
 	"net/http"
+
+	"github.com/pkg/errors"
 )
 
 const (
 	version         = "3"
 	rootAPIEndpoint = "https://api.kite.trade"
 	loginPath       = "/connect/login"
+	accessTokenPath = "/session/token"
+	marginsPath     = "/user/margins"
 )
 
 // Client provides the functionality required for the consumer to access all of the Kite Connect Endpoints
-type Client interface {
-	Login() (string, error)
+type Client struct {
+	APIKey      string
+	AccessToken string
+	HTTPClient  *http.Client
 }
 
-type kite struct {
-	httpClient http.Client
-	apiKey     string
+type Margins struct {
+	Status string `json:"status"`
+	Data   struct {
+		Equity struct {
+			Enabled   bool    `json:"enabled"`
+			Net       float64 `json:"net"`
+			Available struct {
+				AdhocMargin   int `json:"adhoc_margin"`
+				Cash          int `json:"cash"`
+				Collateral    int `json:"collateral"`
+				IntradayPayin int `json:"intraday_payin"`
+			} `json:"available"`
+			Utilised struct {
+				Debits        float64 `json:"debits"`
+				Exposure      int     `json:"exposure"`
+				M2MRealised   float64 `json:"m2m_realised"`
+				M2MUnrealised int     `json:"m2m_unrealised"`
+				OptionPremium int     `json:"option_premium"`
+				Payout        int     `json:"payout"`
+				Span          int     `json:"span"`
+				HoldingSales  int     `json:"holding_sales"`
+				Turnover      int     `json:"turnover"`
+			} `json:"utilised"`
+		} `json:"equity"`
+		Commodity struct {
+			Enabled   bool `json:"enabled"`
+			Net       int  `json:"net"`
+			Available struct {
+				AdhocMargin   int `json:"adhoc_margin"`
+				Cash          int `json:"cash"`
+				Collateral    int `json:"collateral"`
+				IntradayPayin int `json:"intraday_payin"`
+			} `json:"available"`
+			Utilised struct {
+				Debits        int `json:"debits"`
+				Exposure      int `json:"exposure"`
+				M2MRealised   int `json:"m2m_realised"`
+				M2MUnrealised int `json:"m2m_unrealised"`
+				OptionPremium int `json:"option_premium"`
+				Payout        int `json:"payout"`
+				Span          int `json:"span"`
+				HoldingSales  int `json:"holding_sales"`
+				Turnover      int `json:"turnover"`
+			} `json:"utilised"`
+		} `json:"commodity"`
+	} `json:"data"`
 }
 
-func (k kite) Login() (string, error) {
-	loginEndpoint := rootAPIEndpoint + loginPath
-	req, err := http.NewRequest("GET", loginEndpoint, nil)
+// GetMargins returns funds, cash, and margin information for the user for equity and commodity segments
+func (c Client) GetMargins() (*Margins, error) {
+	marginsURL := rootAPIEndpoint + marginsPath
+	req, err := http.NewRequest("GET", marginsURL, nil)
 	if err != nil {
-		return "", err
+		return nil, errors.Wrap(err, "unable to create a request for Margin")
 	}
-	q := req.URL.Query()
-	q.Add("v", "3")
-	q.Add("api_key", k.apiKey)
-	fmt.Println("Query Params: " + q.Encode())
-	resp, err := k.httpClient.Do(req)
+	token := c.APIKey + ":" + c.AccessToken
+	req.Header.Add("Authorization", "token "+token)
+	req.Header.Add("X-Kite-Version", version)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return "", err
+		return nil, errors.Wrap(err, "unable to get the margins from the server")
 	}
 	defer resp.Body.Close()
-	respReader := resp.Body
-	body, err := ioutil.ReadAll(respReader)
+	margins := Margins{}
+	err = json.NewDecoder(resp.Body).Decode(&margins)
 	if err != nil {
-		return "", err
+		return nil, errors.Wrap(err, "unable to  decode the response")
 	}
-	fmt.Println(string(body))
-	return "ACCESS TOKEN", nil
-}
-
-// NewClient creates a Kite Connect Client that can be used by the consumer to consume the Kite Connect Endpoints
-func NewClient(apiKey string) Client {
-	var client = kite{apiKey: apiKey}
-	return client
+	return &margins, err
 }
